@@ -133,3 +133,16 @@
             {wallet: wallet-principal, signer: tx-sender}
             true)
         (ok true)))
+
+(define-public (propose-transaction (tx-id uint) (recipient principal) (amount uint))
+    (begin
+        (asserts! (var-get initialized) ERR-NOT-INITIALIZED)
+        (try! (validate-amount amount))
+        (try! (check-balance tx-sender amount))
+        (map-set pending-transactions tx-id
+            {sender: tx-sender,
+             recipient: recipient,
+             amount: amount,
+             signatures: u1,
+             executed: false})
+        (ok true)))
