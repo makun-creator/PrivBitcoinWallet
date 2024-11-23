@@ -48,7 +48,7 @@
      signatures: uint,
      executed: bool})
 
-	 ;; Private Functions
+;; Private Functions
 (define-private (validate-amount (amount uint))
     (if (> amount u0)
         (ok true)
@@ -173,3 +173,15 @@
 ;; Read-Only Functions
 (define-read-only (get-balance (user principal))
     (default-to u0 (map-get? balances user)))
+
+(define-read-only (get-mixer-pool (pool-id uint))
+    (map-get? mixer-pools pool-id))
+
+(define-read-only (get-multi-sig-wallet (wallet principal))
+    (map-get? multi-sig-wallets wallet))
+
+(define-read-only (get-pending-transaction (tx-id uint))
+    (map-get? pending-transactions tx-id))
+
+(define-read-only (is-signer (wallet principal) (signer principal))
+    (default-to false (map-get? signer-permissions {wallet: wallet, signer: signer})))
