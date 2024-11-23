@@ -88,3 +88,11 @@
         (try! (validate-amount amount))
         (update-balance tx-sender amount true)
         (ok true)))
+
+(define-public (withdraw (amount uint))
+    (begin
+        (asserts! (var-get initialized) ERR-NOT-INITIALIZED)
+        (try! (validate-amount amount))
+        (try! (check-balance tx-sender amount))
+        (update-balance tx-sender amount false)
+        (ok true)))
