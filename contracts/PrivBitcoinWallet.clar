@@ -72,3 +72,12 @@
                 (ok true)
                 ERR-INVALID-MIXER-POOL)
         ERR-INVALID-MIXER-POOL))
+
+;; Public Functions
+(define-public (initialize (threshold uint))
+    (begin
+        (asserts! (not (var-get initialized)) ERR-ALREADY-INITIALIZED)
+        (asserts! (> threshold u0) ERR-INVALID-THRESHOLD)
+        (var-set initialized true)
+        (var-set contract-owner tx-sender)
+        (ok true)))
