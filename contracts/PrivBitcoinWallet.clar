@@ -169,3 +169,7 @@
                 (map-set pending-transactions tx-id
                     (merge tx {executed: true}))
                 (ok true)))))
+
+;; Read-Only Functions
+(define-read-only (get-balance (user principal))
+    (default-to u0 (map-get? balances user)))
