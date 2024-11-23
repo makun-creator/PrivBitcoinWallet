@@ -155,3 +155,17 @@
             (map-set pending-transactions tx-id
                 (merge tx {signatures: (+ (get signatures tx) u1)}))
             (ok true))))
+
+(define-public (execute-transaction (tx-id uint))
+    (begin
+        (asserts! (var-get initialized) ERR-NOT-INITIALIZED)
+        (let ((tx (unwrap! (map-get? pending-transactions tx-id) ERR-INVALID-SIGNATURE)))
+            (asserts! (not (get executed tx)) ERR-INVALID-SIGNATURE)
+            (let ((wallet (unwrap! (map-get? multi-sig-wallets (get sender tx)) ERR-INVALID-SIGNATURE)))
+                (asserts! (>= (get signatures tx) (get threshold wallet)) ERR-INVALID-SIGNATURE)
+                (try! (check-balance (get sender tx) (get amount tx)))
+                (update-balance (get sender tx) (get amount tx) false)
+                (update-balance (get recipient tx) (get amount tx) true)
+                (map-set pending-transactions tx-id
+                    (merge tx {executed: true}))
+                (ok true)))))
