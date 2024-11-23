@@ -6,6 +6,15 @@
 ;; and basic deposit and withdrawal functionalities. The contract ensures secure and 
 ;; authorized transactions through various error checks and validations.
 
+;; Constants for limits and thresholds
+(define-constant MAX-UINT u340282366920938463463374607431768211455)
+(define-constant MAX-TRANSACTION-AMOUNT u1000000000000) ;; 10,000 BTC in sats
+(define-constant MAX-DAILY-LIMIT u100000000000) ;; 1,000 BTC in sats
+(define-constant MAX-POOL-ID u1000)
+(define-constant MAX-POOL-PARTICIPANTS u100)
+(define-constant MAX-PENDING-TRANSACTIONS u1000)
+(define-constant COOLING-PERIOD u144) ;; ~1 day in blocks
+
 ;; Error Codes
 (define-constant ERR-NOT-AUTHORIZED (err u100))
 (define-constant ERR-INVALID-AMOUNT (err u101))
@@ -15,45 +24,88 @@
 (define-constant ERR-ALREADY-INITIALIZED (err u105))
 (define-constant ERR-NOT-INITIALIZED (err u106))
 (define-constant ERR-INVALID-THRESHOLD (err u107))
+(define-constant ERR-POOL-FULL (err u108))
+(define-constant ERR-POOL-EXISTS (err u109))
+(define-constant ERR-DAILY-LIMIT-EXCEEDED (err u110))
+(define-constant ERR-COOLING-PERIOD (err u111))
+(define-constant ERR-DUPLICATE-SIGNER (err u112))
+(define-constant ERR-TX-EXISTS (err u113))
+(define-constant ERR-CONTRACT-PAUSED (err u114))
 
 ;; Data Variables
 (define-data-var contract-owner principal tx-sender)
 (define-data-var initialized bool false)
+(define-data-var contract-paused bool false)
 (define-data-var mixing-fee uint u100) ;; 1% fee (basis points)
 (define-data-var min-mixer-amount uint u100000) ;; in sats
 (define-data-var stacking-threshold uint u1000000)
 
 ;; Data Maps
 (define-map balances principal uint)
-
+(define-map daily-limits 
+    { user: principal, day: uint } 
+    uint)
 (define-map mixer-pools 
     uint 
-    {amount: uint, participants: uint, active: bool})
-
+    {amount: uint, 
+     participants: uint, 
+     participant-list: (list 100 principal),
+     active: bool})
 (define-map multi-sig-wallets 
     principal 
     {threshold: uint, 
      total-signers: uint,
-     active: bool})
-
+     active: bool,
+     last-activity: uint})
 (define-map signer-permissions 
     {wallet: principal, signer: principal} 
     bool)
-
 (define-map pending-transactions 
     uint 
     {sender: principal,
      recipient: principal,
      amount: uint,
      signatures: uint,
+     signers: (list 10 principal),
+     created-at: uint,
      executed: bool})
 
-;; Private Functions
+;; Private Functions - Input Validation
 (define-private (validate-amount (amount uint))
-    (if (> amount u0)
-        (ok true)
-        ERR-INVALID-AMOUNT))
+    (begin
+        (asserts! (> amount u0) ERR-INVALID-AMOUNT)
+        (asserts! (<= amount MAX-TRANSACTION-AMOUNT) ERR-INVALID-AMOUNT)
+        (ok true)))
 
+(define-private (validate-pool-id (pool-id uint))
+    (begin
+        (asserts! (< pool-id MAX-POOL-ID) ERR-INVALID-MIXER-POOL)
+        (asserts! (is-none (map-get? mixer-pools pool-id)) ERR-POOL-EXISTS)
+        (ok true)))
+
+(define-private (check-daily-limit (user principal) (amount uint))
+    (let ((current-day (/ block-height u144))
+          (current-total (default-to u0 
+            (map-get? daily-limits {user: user, day: current-day}))))
+        (asserts! (<= (+ current-total amount) MAX-DAILY-LIMIT) 
+            ERR-DAILY-LIMIT-EXCEEDED)
+        (ok true)))
+
+(define-private (update-daily-limit (user principal) (amount uint))
+    (let ((current-day (/ block-height u144)))
+        (map-set daily-limits 
+            {user: user, day: current-day}
+            (+ (default-to u0 
+                (map-get? daily-limits {user: user, day: current-day}))
+               amount))))
+
+(define-private (check-cooling-period (wallet principal))
+    (let ((wallet-data (unwrap! (map-get? multi-sig-wallets wallet) ERR-NOT-AUTHORIZED)))
+        (asserts! (>= block-height (+ (get last-activity wallet-data) COOLING-PERIOD))
+            ERR-COOLING-PERIOD)
+        (ok true)))
+
+;; Private Functions - Core Logic
 (define-private (check-balance (user principal) (amount uint))
     (let ((current-balance (default-to u0 (map-get? balances user))))
         (if (>= current-balance amount)
@@ -68,10 +120,34 @@
 
 (define-private (validate-mixer-pool (pool-id uint))
     (match (map-get? mixer-pools pool-id)
-        pool (if (get active pool)
+        pool (if (and (get active pool)
+                     (< (get participants pool) MAX-POOL-PARTICIPANTS))
                 (ok true)
                 ERR-INVALID-MIXER-POOL)
         ERR-INVALID-MIXER-POOL))
+
+;; New helper function to check for duplicate signers
+(define-private (has-duplicate-signers (signers (list 10 principal)))
+    (fold check-duplicates-in-remaining 
+          signers 
+          {index: u0, 
+           list: signers, 
+           found-duplicate: false}))
+
+(define-private (check-duplicates-in-remaining 
+    (current-signer principal) 
+    (state {index: uint, 
+           list: (list 10 principal), 
+           found-duplicate: bool}))
+    (if (get found-duplicate state)
+        state
+        (let ((remaining-items (unwrap! (slice? (get list state) 
+                                               (+ (get index state) u1) 
+                                               (len (get list state))) 
+                                       state)))
+            (merge state 
+                  {index: (+ (get index state) u1),
+                   found-duplicate: (is-some (index-of remaining-items current-signer))}))))
 
 ;; Public Functions
 (define-public (initialize (threshold uint))
@@ -85,103 +161,102 @@
 (define-public (deposit (amount uint))
     (begin
         (asserts! (var-get initialized) ERR-NOT-INITIALIZED)
+        (asserts! (not (var-get contract-paused)) ERR-CONTRACT-PAUSED)
         (try! (validate-amount amount))
+        (try! (check-daily-limit tx-sender amount))
         (update-balance tx-sender amount true)
+        (update-daily-limit tx-sender amount)
         (ok true)))
 
 (define-public (withdraw (amount uint))
     (begin
         (asserts! (var-get initialized) ERR-NOT-INITIALIZED)
+        (asserts! (not (var-get contract-paused)) ERR-CONTRACT-PAUSED)
         (try! (validate-amount amount))
+        (try! (check-daily-limit tx-sender amount))
         (try! (check-balance tx-sender amount))
         (update-balance tx-sender amount false)
+        (update-daily-limit tx-sender amount)
         (ok true)))
 
 (define-public (create-mixer-pool (pool-id uint) (initial-amount uint))
     (begin
         (asserts! (var-get initialized) ERR-NOT-INITIALIZED)
+        (asserts! (not (var-get contract-paused)) ERR-CONTRACT-PAUSED)
+        (try! (validate-pool-id pool-id))
+        (try! (validate-amount initial-amount))
         (asserts! (>= initial-amount (var-get min-mixer-amount)) ERR-INVALID-AMOUNT)
         (map-set mixer-pools pool-id
             {amount: initial-amount,
              participants: u1,
+             participant-list: (list tx-sender),
              active: true})
         (ok true)))
 
 (define-public (join-mixer-pool (pool-id uint) (amount uint))
     (begin
         (asserts! (var-get initialized) ERR-NOT-INITIALIZED)
+        (asserts! (not (var-get contract-paused)) ERR-CONTRACT-PAUSED)
         (try! (validate-mixer-pool pool-id))
+        (try! (validate-amount amount))
         (try! (check-balance tx-sender amount))
         (let ((pool (unwrap! (map-get? mixer-pools pool-id) ERR-INVALID-MIXER-POOL)))
+            (asserts! (not (is-some (index-of (get participant-list pool) tx-sender))) 
+                ERR-DUPLICATE-SIGNER)
             (map-set mixer-pools pool-id
                 {amount: (+ (get amount pool) amount),
                  participants: (+ (get participants pool) u1),
+                 participant-list: (unwrap! (as-max-len? 
+                    (append (get participant-list pool) tx-sender) u100)
+                    ERR-POOL-FULL),
                  active: true})
             (update-balance tx-sender amount false)
             (ok true))))
 
-(define-public (setup-multi-sig (wallet-principal principal) (threshold uint) (signers (list 10 principal)))
+(define-public (setup-multi-sig (wallet-principal principal) 
+                               (threshold uint) 
+                               (signers (list 10 principal)))
     (begin
         (asserts! (var-get initialized) ERR-NOT-INITIALIZED)
+        (asserts! (not (var-get contract-paused)) ERR-CONTRACT-PAUSED)
         (asserts! (> threshold u0) ERR-INVALID-THRESHOLD)
         (asserts! (<= threshold (len signers)) ERR-INVALID-THRESHOLD)
+        ;; Check for duplicate signers
+        (asserts! (not (get found-duplicate (has-duplicate-signers signers))) 
+            ERR-DUPLICATE-SIGNER)
         (map-set multi-sig-wallets wallet-principal
             {threshold: threshold,
              total-signers: (len signers),
-             active: true})
+             active: true,
+             last-activity: block-height})
         (map-set signer-permissions
             {wallet: wallet-principal, signer: tx-sender}
             true)
         (ok true)))
 
-(define-public (propose-transaction (tx-id uint) (recipient principal) (amount uint))
+;; Emergency Functions
+(define-public (pause-contract)
     (begin
-        (asserts! (var-get initialized) ERR-NOT-INITIALIZED)
-        (try! (validate-amount amount))
-        (try! (check-balance tx-sender amount))
-        (map-set pending-transactions tx-id
-            {sender: tx-sender,
-             recipient: recipient,
-             amount: amount,
-             signatures: u1,
-             executed: false})
+        (asserts! (is-eq tx-sender (var-get contract-owner)) ERR-NOT-AUTHORIZED)
+        (var-set contract-paused true)
         (ok true)))
 
-(define-public (sign-transaction (tx-id uint))
+(define-public (unpause-contract)
     (begin
-        (asserts! (var-get initialized) ERR-NOT-INITIALIZED)
-        (let ((tx (unwrap! (map-get? pending-transactions tx-id) ERR-INVALID-SIGNATURE)))
-            (asserts! (not (get executed tx)) ERR-INVALID-SIGNATURE)
-            (map-set pending-transactions tx-id
-                (merge tx {signatures: (+ (get signatures tx) u1)}))
-            (ok true))))
-
-(define-public (execute-transaction (tx-id uint))
-    (begin
-        (asserts! (var-get initialized) ERR-NOT-INITIALIZED)
-        (let ((tx (unwrap! (map-get? pending-transactions tx-id) ERR-INVALID-SIGNATURE)))
-            (asserts! (not (get executed tx)) ERR-INVALID-SIGNATURE)
-            (let ((wallet (unwrap! (map-get? multi-sig-wallets (get sender tx)) ERR-INVALID-SIGNATURE)))
-                (asserts! (>= (get signatures tx) (get threshold wallet)) ERR-INVALID-SIGNATURE)
-                (try! (check-balance (get sender tx) (get amount tx)))
-                (update-balance (get sender tx) (get amount tx) false)
-                (update-balance (get recipient tx) (get amount tx) true)
-                (map-set pending-transactions tx-id
-                    (merge tx {executed: true}))
-                (ok true)))))
+        (asserts! (is-eq tx-sender (var-get contract-owner)) ERR-NOT-AUTHORIZED)
+        (var-set contract-paused false)
+        (ok true)))
 
 ;; Read-Only Functions
 (define-read-only (get-balance (user principal))
     (default-to u0 (map-get? balances user)))
 
-(define-read-only (get-mixer-pool (pool-id uint))
-    (map-get? mixer-pools pool-id))
+(define-read-only (get-daily-limit-remaining (user principal))
+    (let ((current-day (/ block-height u144))
+          (current-total (default-to u0 
+            (map-get? daily-limits {user: user, day: current-day}))))
+        (- MAX-DAILY-LIMIT current-total)))
 
-(define-read-only (get-multi-sig-wallet (wallet principal))
-    (map-get? multi-sig-wallets wallet))
-
-(define-read-only (get-pending-transaction (tx-id uint))
-    (map-get? pending-transactions tx-id))
-
-(define-read-only (is-signer (wallet principal) (signer principal))
-    (default-to false (map-get? signer-permissions {wallet: wallet, signer: signer})))
+(define-read-only (get-contract-status)
+    {paused: (var-get contract-paused),
+     initialized: (var-get initialized)})
