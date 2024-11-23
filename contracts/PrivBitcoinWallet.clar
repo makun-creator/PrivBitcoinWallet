@@ -59,3 +59,9 @@
         (if (>= current-balance amount)
             (ok true)
             ERR-INSUFFICIENT-BALANCE)))
+
+(define-private (update-balance (user principal) (amount uint) (add bool))
+    (let ((current-balance (default-to u0 (map-get? balances user))))
+        (if add
+            (map-set balances user (+ current-balance amount))
+            (map-set balances user (- current-balance amount)))))
