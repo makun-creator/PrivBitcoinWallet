@@ -39,7 +39,7 @@
 (define-map signer-permissions 
     {wallet: principal, signer: principal} 
     bool)
-	
+
 (define-map pending-transactions 
     uint 
     {sender: principal,
@@ -47,3 +47,9 @@
      amount: uint,
      signatures: uint,
      executed: bool})
+
+	 ;; Private Functions
+(define-private (validate-amount (amount uint))
+    (if (> amount u0)
+        (ok true)
+        ERR-INVALID-AMOUNT))
