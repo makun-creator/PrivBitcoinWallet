@@ -53,3 +53,9 @@
     (if (> amount u0)
         (ok true)
         ERR-INVALID-AMOUNT))
+
+(define-private (check-balance (user principal) (amount uint))
+    (let ((current-balance (default-to u0 (map-get? balances user))))
+        (if (>= current-balance amount)
+            (ok true)
+            ERR-INSUFFICIENT-BALANCE)))
