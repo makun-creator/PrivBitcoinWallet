@@ -81,3 +81,10 @@
         (var-set initialized true)
         (var-set contract-owner tx-sender)
         (ok true)))
+
+(define-public (deposit (amount uint))
+    (begin
+        (asserts! (var-get initialized) ERR-NOT-INITIALIZED)
+        (try! (validate-amount amount))
+        (update-balance tx-sender amount true)
+        (ok true)))
