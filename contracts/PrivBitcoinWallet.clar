@@ -146,3 +146,12 @@
              signatures: u1,
              executed: false})
         (ok true)))
+
+(define-public (sign-transaction (tx-id uint))
+    (begin
+        (asserts! (var-get initialized) ERR-NOT-INITIALIZED)
+        (let ((tx (unwrap! (map-get? pending-transactions tx-id) ERR-INVALID-SIGNATURE)))
+            (asserts! (not (get executed tx)) ERR-INVALID-SIGNATURE)
+            (map-set pending-transactions tx-id
+                (merge tx {signatures: (+ (get signatures tx) u1)}))
+            (ok true))))
