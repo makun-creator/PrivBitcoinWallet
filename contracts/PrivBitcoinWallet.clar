@@ -106,3 +106,16 @@
              participants: u1,
              active: true})
         (ok true)))
+
+(define-public (join-mixer-pool (pool-id uint) (amount uint))
+    (begin
+        (asserts! (var-get initialized) ERR-NOT-INITIALIZED)
+        (try! (validate-mixer-pool pool-id))
+        (try! (check-balance tx-sender amount))
+        (let ((pool (unwrap! (map-get? mixer-pools pool-id) ERR-INVALID-MIXER-POOL)))
+            (map-set mixer-pools pool-id
+                {amount: (+ (get amount pool) amount),
+                 participants: (+ (get participants pool) u1),
+                 active: true})
+            (update-balance tx-sender amount false)
+            (ok true))))
