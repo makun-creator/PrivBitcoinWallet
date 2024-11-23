@@ -65,3 +65,10 @@
         (if add
             (map-set balances user (+ current-balance amount))
             (map-set balances user (- current-balance amount)))))
+
+(define-private (validate-mixer-pool (pool-id uint))
+    (match (map-get? mixer-pools pool-id)
+        pool (if (get active pool)
+                (ok true)
+                ERR-INVALID-MIXER-POOL)
+        ERR-INVALID-MIXER-POOL))
