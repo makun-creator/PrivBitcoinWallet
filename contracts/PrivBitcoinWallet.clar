@@ -96,3 +96,13 @@
         (try! (check-balance tx-sender amount))
         (update-balance tx-sender amount false)
         (ok true)))
+
+(define-public (create-mixer-pool (pool-id uint) (initial-amount uint))
+    (begin
+        (asserts! (var-get initialized) ERR-NOT-INITIALIZED)
+        (asserts! (>= initial-amount (var-get min-mixer-amount)) ERR-INVALID-AMOUNT)
+        (map-set mixer-pools pool-id
+            {amount: initial-amount,
+             participants: u1,
+             active: true})
+        (ok true)))
