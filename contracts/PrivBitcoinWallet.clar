@@ -119,3 +119,17 @@
                  active: true})
             (update-balance tx-sender amount false)
             (ok true))))
+
+(define-public (setup-multi-sig (wallet-principal principal) (threshold uint) (signers (list 10 principal)))
+    (begin
+        (asserts! (var-get initialized) ERR-NOT-INITIALIZED)
+        (asserts! (> threshold u0) ERR-INVALID-THRESHOLD)
+        (asserts! (<= threshold (len signers)) ERR-INVALID-THRESHOLD)
+        (map-set multi-sig-wallets wallet-principal
+            {threshold: threshold,
+             total-signers: (len signers),
+             active: true})
+        (map-set signer-permissions
+            {wallet: wallet-principal, signer: tx-sender}
+            true)
+        (ok true)))
