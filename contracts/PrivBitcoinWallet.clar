@@ -22,3 +22,28 @@
 (define-data-var mixing-fee uint u100) ;; 1% fee (basis points)
 (define-data-var min-mixer-amount uint u100000) ;; in sats
 (define-data-var stacking-threshold uint u1000000)
+
+;; Data Maps
+(define-map balances principal uint)
+
+(define-map mixer-pools 
+    uint 
+    {amount: uint, participants: uint, active: bool})
+
+(define-map multi-sig-wallets 
+    principal 
+    {threshold: uint, 
+     total-signers: uint,
+     active: bool})
+
+(define-map signer-permissions 
+    {wallet: principal, signer: principal} 
+    bool)
+	
+(define-map pending-transactions 
+    uint 
+    {sender: principal,
+     recipient: principal,
+     amount: uint,
+     signatures: uint,
+     executed: bool})
