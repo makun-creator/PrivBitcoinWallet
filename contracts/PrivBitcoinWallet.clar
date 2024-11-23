@@ -15,3 +15,10 @@
 (define-constant ERR-ALREADY-INITIALIZED (err u105))
 (define-constant ERR-NOT-INITIALIZED (err u106))
 (define-constant ERR-INVALID-THRESHOLD (err u107))
+
+;; Data Variables
+(define-data-var contract-owner principal tx-sender)
+(define-data-var initialized bool false)
+(define-data-var mixing-fee uint u100) ;; 1% fee (basis points)
+(define-data-var min-mixer-amount uint u100000) ;; in sats
+(define-data-var stacking-threshold uint u1000000)
