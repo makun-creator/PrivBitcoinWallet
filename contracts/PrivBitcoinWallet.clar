@@ -160,6 +160,11 @@
 
 (define-public (deposit (amount uint))
     (begin
+        ;; Ensure the amount is greater than zero and within limits
+        (asserts! (> amount u0) ERR-INVALID-AMOUNT)
+        (asserts! (<= amount MAX-TRANSACTION-AMOUNT) ERR-INVALID-AMOUNT)
+
+        ;; Proceed with validations and balance updates
         (asserts! (var-get initialized) ERR-NOT-INITIALIZED)
         (asserts! (not (var-get contract-paused)) ERR-CONTRACT-PAUSED)
         (try! (validate-amount amount))
@@ -167,6 +172,7 @@
         (update-balance tx-sender amount true)
         (update-daily-limit tx-sender amount)
         (ok true)))
+
 
 (define-public (withdraw (amount uint))
     (begin
