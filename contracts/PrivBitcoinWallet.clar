@@ -83,6 +83,11 @@
         (asserts! (is-none (map-get? mixer-pools pool-id)) ERR-POOL-EXISTS)
         (ok true)))
 
+(define-private (validate-pool-principal (wallet principal))
+    (begin
+        (asserts! (not (is-eq wallet tx-sender)) ERR-NOT-AUTHORIZED)
+        (ok true)))
+
 (define-private (check-daily-limit (user principal) (amount uint))
     (let ((current-day (/ block-height u144))
           (current-total (default-to u0 
@@ -193,11 +198,18 @@
 
 (define-public (create-mixer-pool (pool-id uint) (initial-amount uint))
     (begin
+        ;; Additional explicit validations
+        (asserts! (> pool-id u0) ERR-INVALID-MIXER-POOL)
+        (asserts! (< pool-id MAX-POOL-ID) ERR-INVALID-MIXER-POOL)
+        
         (asserts! (var-get initialized) ERR-NOT-INITIALIZED)
         (asserts! (not (var-get contract-paused)) ERR-CONTRACT-PAUSED)
+        
+        ;; Existing validations with early checks
         (try! (validate-pool-id pool-id))
         (try! (validate-amount initial-amount))
         (asserts! (>= initial-amount (var-get min-mixer-amount)) ERR-INVALID-AMOUNT)
+        
         (map-set mixer-pools pool-id
             {amount: initial-amount,
              participants: u1,
