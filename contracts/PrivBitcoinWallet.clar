@@ -219,40 +219,61 @@
 
 (define-public (join-mixer-pool (pool-id uint) (amount uint))
     (begin
+        ;; Add explicit validation for wallet-principal
+        (try! (validate-pool-principal tx-sender))
+        
+        ;; Existing validations
         (asserts! (var-get initialized) ERR-NOT-INITIALIZED)
         (asserts! (not (var-get contract-paused)) ERR-CONTRACT-PAUSED)
         (try! (validate-mixer-pool pool-id))
         (try! (validate-amount amount))
         (try! (check-balance tx-sender amount))
+        
         (let ((pool (unwrap! (map-get? mixer-pools pool-id) ERR-INVALID-MIXER-POOL)))
             (asserts! (not (is-some (index-of (get participant-list pool) tx-sender))) 
                 ERR-DUPLICATE-SIGNER)
-            (map-set mixer-pools pool-id
-                {amount: (+ (get amount pool) amount),
-                 participants: (+ (get participants pool) u1),
-                 participant-list: (unwrap! (as-max-len? 
-                    (append (get participant-list pool) tx-sender) u100)
-                    ERR-POOL-FULL),
-                 active: true})
-            (update-balance tx-sender amount false)
-            (ok true))))
+            
+            ;; Add additional checks for pool amount calculation
+            (let ((new-total-amount (+ (get amount pool) amount)))
+                (asserts! (<= new-total-amount MAX-TRANSACTION-AMOUNT) ERR-INVALID-AMOUNT)
+                
+                (map-set mixer-pools pool-id
+                    {amount: new-total-amount,
+                     participants: (+ (get participants pool) u1),
+                     participant-list: (unwrap! (as-max-len? 
+                        (append (get participant-list pool) tx-sender) u100)
+                        ERR-POOL-FULL),
+                     active: true})
+                (update-balance tx-sender amount false)
+                (ok true)))))
 
 (define-public (setup-multi-sig (wallet-principal principal) 
                                (threshold uint) 
                                (signers (list 10 principal)))
     (begin
+        ;; Add explicit validation for wallet-principal
+        (try! (validate-pool-principal wallet-principal))
+        
+        ;; Existing validations
         (asserts! (var-get initialized) ERR-NOT-INITIALIZED)
         (asserts! (not (var-get contract-paused)) ERR-CONTRACT-PAUSED)
         (asserts! (> threshold u0) ERR-INVALID-THRESHOLD)
         (asserts! (<= threshold (len signers)) ERR-INVALID-THRESHOLD)
+        
+        ;; Additional checks for signers
+        (asserts! (not (is-some (index-of signers wallet-principal))) 
+            ERR-INVALID-SIGNATURE)
+        
         ;; Check for duplicate signers
         (asserts! (not (get found-duplicate (has-duplicate-signers signers))) 
             ERR-DUPLICATE-SIGNER)
+        
         (map-set multi-sig-wallets wallet-principal
             {threshold: threshold,
              total-signers: (len signers),
              active: true,
              last-activity: block-height})
+        
         (map-set signer-permissions
             {wallet: wallet-principal, signer: tx-sender}
             true)
