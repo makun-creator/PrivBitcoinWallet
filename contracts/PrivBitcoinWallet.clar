@@ -176,11 +176,17 @@
 
 (define-public (withdraw (amount uint))
     (begin
+        ;; Existing validation checks
+        (asserts! (> amount u0) ERR-INVALID-AMOUNT)
         (asserts! (var-get initialized) ERR-NOT-INITIALIZED)
         (asserts! (not (var-get contract-paused)) ERR-CONTRACT-PAUSED)
+        
+        ;; Existing validation logic
         (try! (validate-amount amount))
         (try! (check-daily-limit tx-sender amount))
         (try! (check-balance tx-sender amount))
+        
+        ;; Transaction execution
         (update-balance tx-sender amount false)
         (update-daily-limit tx-sender amount)
         (ok true)))
